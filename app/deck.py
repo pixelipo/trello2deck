@@ -1,14 +1,15 @@
 import os
+from random import randint
 
 from urllib import request, parse
 from urllib.error import URLError, HTTPError
-import requests
+import requests, logging
 import ssl
 import json
 import base64
 # import sqlite3
 
-# from app import db
+from app import db
 
 
 ctx = ssl.create_default_context()
@@ -55,77 +56,54 @@ def authenticate():
     return res
 
 
-def connect():
-    parms = dict()
-    # fetch secrets from local file
+def connect(data=None):
+    # Fetch secrets locally
     try:
         from env.conf import deck
         baseUrl = deck['domain']
-        parms['username'] = deck['username']
-        parms['password'] = deck['password']
+        credentials = (deck['username'], deck['password'])
     except:
-        return("credentials file not found")
+        # TODO: populate env.conf using authenticate() function
+        return("Credentials not found")
 
-
-    basicAuthCredentials = (parms['username'], parms['password'])
-    url = baseUrl + '/index.php/apps/deck/api/v1.0/boards/1'
+    url = baseUrl + '/index.php/apps/deck/api/v1.0/boards'
     hdr = {
         'OCS-APIRequest' : 'true',
         'Content-Type': 'application/json'
     }
-    # Send HTTP GET request to server and attempt to receive a response
-    print(url)
-    response = requests.get(url, auth=basicAuthCredentials, headers=hdr)
+    if data:
+        response = requests.post(url, auth=credentials, headers=hdr, json=data)
+        print(response)
+        return response.status_code
+
+    response = requests.get(url, auth=credentials, headers=hdr)
+
 
     # If the HTTP GET request can be served
-    if response.status_code == 200:
-        return json.loads(response.text)
-    else:
-        return dir(response)
+    if response.status_code != 200:
+        return response
 
-    # baseUrl = 'https://api.trello.com/1/members/me/boards?'
+    boards = dict()
+    for board in json.loads(response.text):
+        boards.__setitem__(board['id'], board['title'])
 
-    # url = baseUrl + parse.urlencode(parms)
-    # print(username)
+    return boards
 
-    # b64auth = base64.standard_b64encode('%s:%s' % (username, password))
+def postBoards():
+    conn = db.initDb('data/db.sqlite3')
+    cur=conn.cursor()
+    trello = db.getBoards(conn).fetchall()
+    deck = connect()
 
+    for id, name in trello:
+        if name in deck.values():
+            print(name, 'found; skipping')
+            continue
 
-
-    # req = request.Request(url)
-    # req.add_header("OCS-APIRequest", "true")
-    # req.add_header("Content-Type", "application/json")
-    # print(req.full_url)
-    # try:
-    #     resp = request.urlopen(req, context=ctx).headers()
-    #     return resp.read()
-    # except HTTPError as e:
-    #     return e
-
+        connect({"title": name, "color": randomColor()})
+    return True
 
 
-    # try:
-    #
-    #     print(requests.get(url, auth=(credentials['loginName'], credentials['appPassword'])).content, headers=hdr)
-    #     # data = parse.urlencode(parms).encode()
-    #     # req =  request.Request(deck['domain']+'/index.php/login/v2', data=data) # this will make the method "POST"
-    #     # response = request.urlopen(req)
-    #     # # req = request.Request(url, headers=hdr)
-    #     # # print(req)
-    #     # # response = request.urlopen(req, context=ctx)
-    # except URLError as e:
-    #     return e
-
-
-    # data = connection.read()
-    # limits = dict()
-    # limits['X-Rate-Limit-Api-Key-Remaining'] = response.info()['X-Rate-Limit-Api-Key-Remaining']
-    # limits['X-Rate-Limit-Api-Token-Remaining'] = response.info()['X-Rate-Limit-Api-Key-Remaining']
-    # limits['X-Rate-Limit-Member-Remaining'] = response.info()['X-Rate-Limit-Member-Remaining']
-
-    # if ('0' in limits.values()):
-    #     return "API Limit reached"
-    # print(limits)
-    # res = response.read().decode()
-    # return response
-    # return json.loads(res)
+def randomColor():
+    r = lambda: randint(0,255)
+    return ('%02X%02X%02X' % (r(),r(),r()))

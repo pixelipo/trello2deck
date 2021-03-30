@@ -21,4 +21,6 @@ if (service == '2'):
 
 if (service == '3'):
     # print(deck.authenticate())
-    print(deck.connect())
+    # print(deck.connect())
+    print(deck.postBoards())
+    # print(deck.randomColor())
