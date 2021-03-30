@@ -20,4 +20,5 @@ if (service == '2'):
     print(parser.getBoards(data))
 
 if (service == '3'):
+    # print(deck.authenticate())
     print(deck.connect())
