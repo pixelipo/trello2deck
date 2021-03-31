@@ -1,8 +1,5 @@
-import os
-
-import urllib.request
-from urllib.error import URLError
-import  urllib.parse
+from dotenv import dotenv_values
+import requests
 import ssl
 import json
 import sqlite3
@@ -10,47 +7,44 @@ import sqlite3
 from app import db
 
 
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
-
 def connect(baseUrl):
-    parms = dict()
-    # fetch secrets from local file
+    # fetch secrets from .env
+    params = dict()
     try:
-        from env.conf import trello
-        parms['key'] = trello['key']
-        parms['token'] = trello['token']
+        config = dotenv_values(".env")
+        params['key'] = config['TRELLO_KEY']
+        params['token'] = config['TRELLO_TOKEN']
     except:
-        return("credentials file not found")
+        return("Credentials file not found")
 
 
-    # baseUrl = 'https://api.trello.com/1/members/me/boards?'
-    url = baseUrl + urllib.parse.urlencode(parms)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
-    try:
-        response = urllib.request.urlopen(url, context=ctx)
-    except URLError as e:
-        return e
+    response = requests.get(baseUrl, params=params)
 
-    # data = connection.read()
+    if not response:
+        return response.status
+
     limits = dict()
-    limits['X-Rate-Limit-Api-Key-Remaining'] = response.info()['X-Rate-Limit-Api-Key-Remaining']
-    limits['X-Rate-Limit-Api-Token-Remaining'] = response.info()['X-Rate-Limit-Api-Key-Remaining']
-    limits['X-Rate-Limit-Member-Remaining'] = response.info()['X-Rate-Limit-Member-Remaining']
+    limits['X-Rate-Limit-Api-Key-Remaining'] = response.headers['X-Rate-Limit-Api-Key-Remaining']
+    limits['X-Rate-Limit-Api-Token-Remaining'] = response.headers['X-Rate-Limit-Api-Key-Remaining']
+    limits['X-Rate-Limit-Member-Remaining'] = response.headers['X-Rate-Limit-Member-Remaining']
 
     if ('0' in limits.values()):
         return "API Limit reached"
+
     print(limits)
-    res = response.read().decode()
+
+    res = response.content
     return json.loads(res)
+
 
 def createBoards(data):
     conn = db.initDb('data/db.sqlite3')
 
-    # boards = dict()
     for board in data:
-        # boards.__setitem__(board['id'],board['name'])
         # board['dateLastActivity']
         # format = "%Y-/%m-%dT%H:%M:%S" #2016-08-28T12:09:14.623Z
         # modified = datetime.datetime(2012,4,1,0,0).timestamp()
@@ -67,15 +61,13 @@ def createBoards(data):
 
 def createLists():
     conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
+    cur = conn.cursor()
     boards = db.getBoards(cur).fetchall()
-    # lists = list()
+
     for id, name in boards:
-        # print(id, name)
         baseUrl = 'https://api.trello.com/1/boards/'+id+'/lists?'
         res = connect(baseUrl)
         for line in res:
-            # print(line)
             db.insertList(
                 cur=cur,
                 name=line['name'],
@@ -84,25 +76,23 @@ def createLists():
                 board_id=id
             )
         conn.commit()
-            # conn.close()
-            # lists.append({'listId': line['id'], 'listTitle': line['name'], 'boardId': id, 'boardName': name})
 
     return db.getLists(cur).fetchall()
 
 
 def createCards():
     conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
+    cur = conn.cursor()
 
     lists = db.getLists(cur).fetchall()
-    # print(lists)
+
     count = 0
     for id, name, boardName in lists:
         baseUrl = 'https://api.trello.com/1/lists/'+id+'/cards?'
         res = connect(baseUrl)
         count += len(res)
+
         for line in res:
-            # print(line)
             db.insertCard(
                 cur=cur,
                 trello_id=line['id'],
