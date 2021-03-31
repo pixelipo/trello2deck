@@ -1,13 +1,11 @@
-import os
+from dotenv import dotenv_values
 from random import randint
 
 from urllib import request, parse
 from urllib.error import URLError, HTTPError
-import requests, logging
+import requests
 import ssl
 import json
-import base64
-# import sqlite3
 
 from app import db
 
@@ -17,35 +15,28 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
 def authenticate():
-    parms = dict()
     # fetch secrets from local file
     try:
-        from env.conf import deck
-        baseUrl = deck['domain'] + '/index.php/apps/deck/api/v1.0/boards/1'
-        username = deck['username']
-        # password = deck['password']
-    #     parms['key'] = trello['key']
-    #     parms['token'] = trello['token']
+        config = dotenv_values(".env")
     except:
-        return("Nexcloud domain not found")
+        return("Credentials file not found")
 
-    data = parse.urlencode(parms).encode()
     try:
-        req =  request.Request(deck['domain']+'/index.php/login/v2', data=data) # this will make the method "POST"
+        req =  request.Request(config['NC_DOMAIN']+'/index.php/login/v2') # this will make the method "POST"
         response = request.urlopen(req)
     except URLError as e:
         return e
 
     res = json.loads(response.read().decode())
-    # print(res)
-    token = res['poll']['token']
-    data = {'token': token}
+
+    data = {'token': res['poll']['token']}
     data = parse.urlencode(data).encode()
-    #
+
     e = 1
     print('Open', res['login'], 'in a browser')
     while e != 200:
         try:
+            #TODO convert to requests library
             req = request.Request(res['poll']['endpoint'], data=data)
             res = request.urlopen(req, context=ctx)
             e = res.getcode()
@@ -57,11 +48,15 @@ def authenticate():
 
 
 def connect(data=None):
-    # Fetch secrets locally
+    # fetch secrets from local file
     try:
-        from env.conf import deck
-        baseUrl = deck['domain']
-        credentials = (deck['username'], deck['password'])
+        config = dotenv_values(".env")
+    except:
+        return("Credentials file not found")
+
+
+    baseUrl = config['NC_DOMAIN']
+    credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
     except:
         # TODO: populate env.conf using authenticate() function
         return("Credentials not found")
