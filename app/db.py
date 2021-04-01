@@ -69,7 +69,7 @@ def getBoards(cur):
     return cur.execute('SELECT trello_id, name FROM Boards;')
 
 def getLists(cur):
-    return cur.execute('SELECT Lists.trello_id, Lists.name, Boards.name FROM Lists JOIN Boards ON Lists.board_id = Boards.trello_id')
+    return cur.execute('SELECT Lists.trello_id, Lists.name, Boards.name FROM Lists JOIN Boards ON Lists.board_id = Boards.trello_id ORDER BY Lists.board_id')
 
 def getCards(cur):
     return cur.execute('SELECT Cards.title, Lists.name, Boards.name FROM Cards JOIN Lists JOIN Boards ON Cards.list_id=Lists.trello_id AND Lists.board_id=Boards.trello_id')

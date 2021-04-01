@@ -47,56 +47,81 @@ def authenticate():
     return res
 
 
-def connect(data=None):
+def connect(endpoint, data=None):
     # fetch secrets from local file
     try:
         config = dotenv_values(".env")
     except:
         return("Credentials file not found")
 
-
-    baseUrl = config['NC_DOMAIN']
-    credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
-    except:
-        # TODO: populate env.conf using authenticate() function
-        return("Credentials not found")
-
-    url = baseUrl + '/index.php/apps/deck/api/v1.0/boards'
+    # compose request
+    url = config['NC_DOMAIN'] + endpoint
     hdr = {
         'OCS-APIRequest' : 'true',
         'Content-Type': 'application/json'
     }
+    credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
+
     if data:
+        # print(url, credentials, data)
         response = requests.post(url, auth=credentials, headers=hdr, json=data)
-        print(response)
+        # print(response.text)
         return response.status_code
 
     response = requests.get(url, auth=credentials, headers=hdr)
-
 
     # If the HTTP GET request can be served
     if response.status_code != 200:
         return response
 
-    boards = dict()
-    for board in json.loads(response.text):
-        boards.__setitem__(board['id'], board['title'])
+    return response.text
 
-    return boards
 
 def postBoards():
     conn = db.initDb('data/db.sqlite3')
     cur=conn.cursor()
     trello = db.getBoards(conn).fetchall()
-    deck = connect()
+    endpoint = '/index.php/apps/deck/api/v1.0/boards'
+    deck = connect(endpoint)
+
+    boards = dict()
+    for board in json.loads(deck):
+        boards.__setitem__(board['id'], board['title'])
 
     for id, name in trello:
         if name in deck.values():
             print(name, 'found; skipping')
             continue
 
-        connect({"title": name, "color": randomColor()})
+        connect(endpoint, {"title": name, "color": randomColor()})
     return True
+
+
+def postLists():
+    conn = db.initDb('data/db.sqlite3')
+    cur=conn.cursor()
+    trello = db.getLists(conn).fetchall()
+    endpoint = '/index.php/apps/deck/api/v1.0/boards'
+    deck = connect(endpoint)
+
+    boards = dict()
+    for board in json.loads(deck):
+        boards.__setitem__(board['title'], board['id'])
+
+    count = 1
+    for l in trello:
+        boardId = str(boards.get(l[2]))
+        url = endpoint + '/' + boardId + '/stacks'
+
+        res = connect(url, {"title": l[1], "order": count})
+        # print(res)
+        if res == 200:
+            print(l[1], 'added')
+            count += 1
+        else:
+            print('list', l[1], 'found in', l[2])
+
+    return count
 
 
 def randomColor():
