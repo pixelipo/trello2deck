@@ -68,8 +68,18 @@ def insertCard(cur, trello_id, closed, title, desc, due, list_id):
 def getBoards(cur):
     return cur.execute('SELECT trello_id, name FROM Boards;')
 
-def getLists(cur):
-    return cur.execute('SELECT Lists.trello_id, Lists.name, Boards.name FROM Lists JOIN Boards ON Lists.board_id = Boards.trello_id ORDER BY Lists.board_id')
+def getLists(cur, board_name):
+    return cur.execute(
+        '''SELECT Lists.trello_id, Lists.name, Boards.name
+           FROM Lists JOIN Boards
+           ON Lists.board_id = Boards.trello_id
+           WHERE Boards.name = ?
+        ''', (board_name,))
 
-def getCards(cur):
-    return cur.execute('SELECT Cards.title, Lists.name, Boards.name FROM Cards JOIN Lists JOIN Boards ON Cards.list_id=Lists.trello_id AND Lists.board_id=Boards.trello_id')
+def getCards(cur, list_id):
+    return cur.execute(
+        '''SELECT Cards.title, Cards.desc, Cards.due, Lists.name, Boards.name
+           FROM Cards JOIN Lists JOIN Boards
+           ON Cards.list_id=Lists.trello_id AND Lists.board_id=Boards.trello_id
+           WHERE Lists.trello_id= ?
+           ''', (list_id,))

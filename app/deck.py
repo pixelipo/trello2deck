@@ -63,9 +63,10 @@ def connect(endpoint, data=None):
     credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
 
     if data:
-        # print(url, credentials, data)
         response = requests.post(url, auth=credentials, headers=hdr, json=data)
-        # print(response.text)
+        if response.status_code != 200:
+            return response.text
+
         return response.status_code
 
     response = requests.get(url, auth=credentials, headers=hdr)
@@ -82,46 +83,78 @@ def postBoards():
     cur=conn.cursor()
     trello = db.getBoards(conn).fetchall()
     endpoint = '/index.php/apps/deck/api/v1.0/boards'
+
     deck = connect(endpoint)
-
-    boards = dict()
-    for board in json.loads(deck):
-        boards.__setitem__(board['id'], board['title'])
-
-    for id, name in trello:
-        if name in deck.values():
-            print(name, 'found; skipping')
-            continue
-
-        connect(endpoint, {"title": name, "color": randomColor()})
-    return True
-
-
-def postLists():
-    conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
-    trello = db.getLists(conn).fetchall()
-    endpoint = '/index.php/apps/deck/api/v1.0/boards'
-    deck = connect(endpoint)
-
     boards = dict()
     for board in json.loads(deck):
         boards.__setitem__(board['title'], board['id'])
 
-    count = 1
-    for l in trello:
-        boardId = str(boards.get(l[2]))
-        url = endpoint + '/' + boardId + '/stacks'
-
-        res = connect(url, {"title": l[1], "order": count})
-        # print(res)
-        if res == 200:
-            print(l[1], 'added')
-            count += 1
+    for id, name in trello:
+        if name in boards.keys():
+            print(name, 'found; skipping')
         else:
-            print('list', l[1], 'found in', l[2])
+            connect(endpoint, {"title": name, "color": randomColor()})
+            print('Added', name)
 
-    return count
+        postLists(boards[name], name)
+
+    return True
+
+def postCards(endpoint, list):
+    conn = db.initDb('data/db.sqlite3')
+    cur=conn.cursor()
+
+    deck = connect(endpoint)
+
+    stacks = dict()
+    for stack in json.loads(deck):
+        stacks[stack['title']] = stack['id']
+
+    cards = db.getCards(conn, list).fetchall()
+    for index, card in enumerate(cards):
+        url = endpoint + '/' + str(stacks[card[3]]) + '/cards'
+        data = {
+            'title': card[0],
+            'type': 'plain',
+            'order': index,
+            'description': card[1]#,
+            # 'duedate': card[2]
+        }
+        res = connect(url, data)
+        if res == 200:
+            print(card[0], 'added')
+        else:
+            print('Error importing', card[0], '\n', res)
+
+
+def postLists(board_id, board_name):
+    conn = db.initDb('data/db.sqlite3')
+    cur=conn.cursor()
+    trello = db.getLists(conn, board_name).fetchall()
+
+    endpoint = '/index.php/apps/deck/api/v1.0/boards/' + str(board_id) + '/stacks'
+
+    deck = connect(endpoint)
+
+    stacks = dict()
+    if len(deck) != 0:
+        for stack in json.loads(deck):
+            stacks[stack['title']] = stack['id']
+
+    for index, l in enumerate(trello):
+        if l[1] in stacks.keys():
+            print(l[1], 'found; skipping')
+        else:
+            res = connect(endpoint, {"title": l[1], "order": index})
+
+            if res == 200:
+                print(l[1], 'added to', board_id)
+            else:
+                print('Error importing', l[1])
+
+        postCards(endpoint, l[0])
+
+    return True
 
 
 def randomColor():

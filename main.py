@@ -1,7 +1,12 @@
 from app import trello, parser, deck, db
 
 
-service = input("Select service:\n[1] Import from Trello\n[2] Import from JSON\n[3] Export to Deck\n")
+service = input('''Select service:
+    [1] Import from Trello
+    [2] Import from JSON
+    [3] Export to Deck
+    [4] Authenticate with Deck
+''')
 
 ## Import data from Trello to SQLite Database
 if (service == '1'):
@@ -15,7 +20,7 @@ if (service == '2'):
     print(parser.getBoards(data))
 
 if (service == '3'):
-    # print(deck.authenticate())
-    # print(deck.connect())
     print(deck.postBoards())
-    print(deck.postLists())
+
+if (service == '4'):
+    print(deck.authenticate())
