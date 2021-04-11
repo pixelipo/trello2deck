@@ -20,6 +20,7 @@ if (service == '2'):
     print(parser.getBoards(data))
 
 if (service == '3'):
+    # print(deck.createBoard('lastTest'))
     print(deck.postBoards())
 
 if (service == '4'):

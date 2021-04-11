@@ -64,95 +64,118 @@ def connect(endpoint, data=None):
 
     if data:
         response = requests.post(url, auth=credentials, headers=hdr, json=data)
-        if response.status_code != 200:
-            return response.text
+    else:
+        response = requests.get(url, auth=credentials, headers=hdr)
 
-        return response.status_code
-
-    response = requests.get(url, auth=credentials, headers=hdr)
-
-    # If the HTTP GET request can be served
-    if response.status_code != 200:
-        return response
-
-    return response.text
+    return response
 
 
 def postBoards():
     conn = db.initDb('data/db.sqlite3')
     cur=conn.cursor()
     trello = db.getBoards(conn).fetchall()
+
     endpoint = '/index.php/apps/deck/api/v1.0/boards'
 
-    deck = connect(endpoint)
-    boards = dict()
-    for board in json.loads(deck):
-        boards.__setitem__(board['title'], board['id'])
-
-    for id, name in trello:
-        if name in boards.keys():
-            print(name, 'found; skipping')
+    for trello_id, name, deck_id in trello:
+        if deck_id is None:
+            res = connect(endpoint, {"title": name, "color": randomColor()})
+            if res.status_code == 200:
+                # print(res.json())
+                deck_id = res.json()['id']
+                db.updateBoard(cur, name, deck_id)
+                conn.commit()
+                # TODO: Update board's lists board_id with Boards.id
+                print('Added', name)
+            else:
+                print(res.status_code, res)
         else:
-            connect(endpoint, {"title": name, "color": randomColor()})
-            print('Added', name)
+            print(name, 'found. Skipping...')
 
-        postLists(boards[name], name)
+        postLists(deck_id, name)
 
     return True
 
-def postCards(endpoint, list):
-    conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
-
-    deck = connect(endpoint)
-
-    stacks = dict()
-    for stack in json.loads(deck):
-        stacks[stack['title']] = stack['id']
-
-    cards = db.getCards(conn, list).fetchall()
-    for index, card in enumerate(cards):
-        url = endpoint + '/' + str(stacks[card[3]]) + '/cards'
-        data = {
-            'title': card[0],
-            'type': 'plain',
-            'order': index,
-            'description': card[1]#,
-            # 'duedate': card[2]
-        }
-        res = connect(url, data)
-        if res == 200:
-            print(card[0], 'added')
-        else:
-            print('Error importing', card[0], '\n', res)
-
 
 def postLists(board_id, board_name):
+    # Get Lists by @board_name
     conn = db.initDb('data/db.sqlite3')
     cur=conn.cursor()
     trello = db.getLists(conn, board_name).fetchall()
 
+    if len(trello) == 0:
+        # No lists found for a given board
+        print('No lists found for ' + board_name + '; skipping...')
+        return False
+
     endpoint = '/index.php/apps/deck/api/v1.0/boards/' + str(board_id) + '/stacks'
 
-    deck = connect(endpoint)
+    for index, list in enumerate(trello):
+        trello_id = list[0]
+        name = list[1]
+        deck_id = list[2]
 
-    stacks = dict()
-    if len(deck) != 0:
-        for stack in json.loads(deck):
-            stacks[stack['title']] = stack['id']
 
-    for index, l in enumerate(trello):
-        if l[1] in stacks.keys():
-            print(l[1], 'found; skipping')
-        else:
-            res = connect(endpoint, {"title": l[1], "order": index})
-
-            if res == 200:
-                print(l[1], 'added to', board_id)
+        if deck_id is None:
+            res = connect(endpoint, {"title": name, "order": index})
+            if res.status_code == 200:
+                # print(res.json())
+                deck_id = res.json()['id']
+                db.updateList(cur, name, deck_id)
+                conn.commit()
+                print('Imported', name)
             else:
-                print('Error importing', l[1])
+                print('Error importing', name, ':\n', res.status_code, res)
+        else:
+            print(name, 'found; skipping...')
 
-        postCards(endpoint, l[0])
+        postCards(endpoint, deck_id)
+
+    return True
+
+
+def postCards(endpoint, list_id):
+    conn = db.initDb('data/db.sqlite3')
+    cur=conn.cursor()
+
+    url = endpoint + '/' + str(list_id)
+    getCards = connect(url)
+    if getCards.status_code == 200:
+        try:
+            cards = getCards.json()['cards']
+            deck_cards = dict()
+            for card in cards:
+                deck_cards[card['title']] = card['id']
+        except:
+            deck_cards = dict()
+
+    cards = db.getCards(conn, list_id).fetchall()
+    url += '/cards'
+    # print(enumerate(cards))
+    for index, card in enumerate(cards):
+        title = card[0]
+        desc = card[1]
+        # due = card[2] # TODO: handle duedate
+        card_id = card[3]
+
+        if title in deck_cards.keys():
+            print('Card found. Skipping...')
+            continue
+
+        data = {
+            'title': title,
+            'type': 'plain',
+            'order': index,
+            'description': desc#,
+            # 'duedate': card[2]
+        }
+        res = connect(url, data)
+        if res.status_code == 200:
+            db.updateCard(cur, title, res.json()['id'], list_id)
+            conn.commit()
+            print(title, 'added')
+        else:
+            print('Error importing', title, '\n', res)
 
     return True
 
@@ -160,3 +183,18 @@ def postLists(board_id, board_name):
 def randomColor():
     r = lambda: randint(0,255)
     return ('%02X%02X%02X' % (r(),r(),r()))
+
+
+# def createBoard(board_name):
+#     endpoint = '/index.php/apps/deck/api/v1.0/boards'
+#
+#     res = connect(endpoint, {"title": board_name, "color": randomColor()})
+#     if res.status_code == 200:
+#         conn = db.initDb('data/db.sqlite3')
+#         cur=conn.cursor()
+#         res = db.updateBoard(cur, board_name, res.json()[0]['id'])
+#         conn.commit()
+#         conn.close()
+#         return res
+#     else:
+#         return res.status_code

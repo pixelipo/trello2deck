@@ -17,6 +17,7 @@ def initDb(dbName, reset=False):
                 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
                 name TEXT UNIQUE,
                 trello_id TEXT UNIQUE,
+                deck_id INTEGER,
                 starred INTEGER
             );
 
@@ -24,6 +25,7 @@ def initDb(dbName, reset=False):
                 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
                 name TEXT,
                 trello_id TEXT UNIQUE,
+                deck_id INTEGER,
                 closed INTEGER,
                 board_id INTEGER NOT NULL
             );
@@ -31,6 +33,7 @@ def initDb(dbName, reset=False):
             CREATE TABLE Cards (
                 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
                 trello_id TEXT UNIQUE,
+                deck_id INTEGER,
                 closed INTEGER,
                 title TEXT,
                 desc TEXT,
@@ -51,6 +54,14 @@ def insertBoard(conn, name, trello_id, starred):
     conn.commit()
     return res
 
+def updateBoard(cur, name, deck_id):
+    res = cur.execute(
+        '''UPDATE Boards SET deck_id = ? WHERE name = ? ''',
+        ( deck_id, name )
+    )
+    # conn.commit()
+    return res
+
 def insertList(cur, name, trello_id, closed, board_id):
     return cur.execute(
         '''INSERT OR IGNORE INTO Lists (name, trello_id, closed, board_id) VALUES ( ?, ?, ?, ? )''',
@@ -58,6 +69,16 @@ def insertList(cur, name, trello_id, closed, board_id):
     )
     # return conn.commit()
 
+def updateList(cur, name, deck_id):
+    res = cur.execute(
+        '''UPDATE Lists
+           SET deck_id = ?,
+           board_id=(SELECT id FROM Boards WHERE trello_id=Lists.board_id)
+           WHERE name = ? ''',
+        ( deck_id, name )
+    )
+    # conn.commit()
+    return res
 
 def insertCard(cur, trello_id, closed, title, desc, due, list_id):
     return cur.execute(
@@ -65,21 +86,26 @@ def insertCard(cur, trello_id, closed, title, desc, due, list_id):
         ( trello_id, closed, title, desc, due, list_id )
     )
 
+def updateCard(cur, title, deck_id, list_id):
+    res = cur.execute(
+        '''UPDATE Cards SET deck_id = ?, list_id = ? WHERE title = ? ''',
+        ( deck_id, list_id, title )
+    )
+    # conn.commit()
+    return res
+
 def getBoards(cur):
-    return cur.execute('SELECT trello_id, name FROM Boards;')
+    return cur.execute('SELECT trello_id, name, deck_id FROM Boards;')
 
 def getLists(cur, board_name):
-    return cur.execute(
-        '''SELECT Lists.trello_id, Lists.name, Boards.name
-           FROM Lists JOIN Boards
-           ON Lists.board_id = Boards.trello_id
-           WHERE Boards.name = ?
-        ''', (board_name,))
+    query = '''SELECT Lists.trello_id, Lists.name, Lists.deck_id FROM Lists JOIN Boards ON Lists.board_id = Boards.id WHERE Boards.name = ?
+        '''
+    return cur.execute(query, (board_name,))
 
 def getCards(cur, list_id):
     return cur.execute(
-        '''SELECT Cards.title, Cards.desc, Cards.due, Lists.name, Boards.name
-           FROM Cards JOIN Lists JOIN Boards
-           ON Cards.list_id=Lists.trello_id AND Lists.board_id=Boards.trello_id
-           WHERE Lists.trello_id= ?
+        '''SELECT Cards.title, Cards.desc, Cards.due, Cards.deck_id, Lists.id
+           FROM Cards JOIN Lists
+           ON Cards.list_id=Lists.trello_id
+           WHERE Lists.deck_id= ?
            ''', (list_id,))

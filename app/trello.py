@@ -43,6 +43,7 @@ def connect(baseUrl):
 
 def createBoards(data):
     conn = db.initDb('data/db.sqlite3')
+    cur = conn.cursor()
 
     for board in data:
         # board['dateLastActivity']
@@ -56,7 +57,9 @@ def createBoards(data):
             starred=board['starred']
         )
 
-    return db.getBoards(conn)
+    res = db.getBoards(cur)
+    conn.close()
+    return res
 
 
 def createLists():
@@ -99,7 +102,7 @@ def createCards():
                 closed=line['closed'],
                 title=line['name'],
                 desc=line['desc'],
-                due=0,
+                due=0, # TODO: import due date
                 list_id=id
             )
         conn.commit()
