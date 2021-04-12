@@ -3,13 +3,13 @@ import requests
 import ssl
 import json
 import sqlite3
+from datetime import datetime
 
 from app import db
 
 
-def connect(baseUrl):
+def connect(baseUrl, params=dict()):
     # fetch secrets from .env
-    params = dict()
     try:
         config = dotenv_values(".env")
         params['key'] = config['TRELLO_KEY']
@@ -25,7 +25,7 @@ def connect(baseUrl):
     response = requests.get(baseUrl, params=params)
 
     if not response:
-        return response.status
+        return response.status_code
 
     limits = dict()
     limits['X-Rate-Limit-Api-Key-Remaining'] = response.headers['X-Rate-Limit-Api-Key-Remaining']
@@ -37,74 +37,98 @@ def connect(baseUrl):
 
     print(limits)
 
-    res = response.content
-    return json.loads(res)
+    return response.json()
 
 
 def createBoards(data):
-    conn = db.initDb('data/db.sqlite3')
+    conn = db.initDb('data/new.sqlite3')
     cur = conn.cursor()
+
+    boards = dict(db.getBoards(cur))
 
     for board in data:
-        # board['dateLastActivity']
-        # format = "%Y-/%m-%dT%H:%M:%S" #2016-08-28T12:09:14.623Z
-        # modified = datetime.datetime(2012,4,1,0,0).timestamp()
-        db.insertBoard(
-            conn=conn,
-            name=board['name'],
-            trello_id=board['id'],
-            # modified=modified,
-            starred=board['starred']
-        )
+        if board['name'] in boards.keys():
+            board_id = boards[board['name']]
+            # TODO: Update board if @modified is newer than db value
+        else:
+            board_id = db.insertBoard(
+                conn=conn,
+                name=board['name'],
+                trello_id=board['id'],
+                modified=timeToEpoch(board['dateLastActivity']),
+                archived=board['closed'],
+                starred=board['starred']
+            )
+            conn.commit()
+        createLists(conn, board_id, board['id'])
 
-    res = db.getBoards(cur)
     conn.close()
-    return res
+    return True
 
 
-def createLists():
-    conn = db.initDb('data/db.sqlite3')
+def createLists(conn, board_id, trello_id):
     cur = conn.cursor()
-    boards = db.getBoards(cur).fetchall()
+    lists = dict(db.getListsNew(cur, board_id))
 
-    for id, name in boards:
-        baseUrl = 'https://api.trello.com/1/boards/'+id+'/lists?'
-        res = connect(baseUrl)
-        for line in res:
-            db.insertList(
+    # id = db.getBoardTrelloId(cur, board_id)[0]
+    baseUrl = 'https://api.trello.com/1/boards/'+trello_id+'/lists'
+    params = {'cards': 'all'}
+    res = connect(baseUrl, params)
+
+    if res == []:
+        return "No lists found. Skipping..."
+
+    for list in res:
+        if list['name'] in lists.keys():
+            list_id = lists[list['name']]
+        else:
+            list_id = db.insertList(
                 cur=cur,
-                name=line['name'],
-                trello_id=line['id'],
-                closed=line['closed'],
-                board_id=id
+                name=list['name'],
+                trello_id=list['id'],
+                closed=list['closed'],
+                position=list['pos'],
+                board_id=board_id
+            )
+            conn.commit()
+
+        createCards(conn, list_id, list['cards'])
+
+    return True
+
+
+def createCards(conn, list_id, trello_cards):
+    cur = conn.cursor()
+    cards = dict(db.getCardsNew(cur, list_id))
+
+    if trello_cards == []:
+        return "No cards found."
+
+    for card in trello_cards:
+        if card['id'] in cards.keys():
+            card_id = cards[card['id']]
+            # TODO: updateCard when @modified is newer than db value
+        else:
+            card_id = db.insertCard(
+                cur=cur,
+                title=card['name'],
+                trello_id=card['id'],
+                closed=card['closed'],
+                desc=card['desc'],
+                position=card['pos'],
+                modified=timeToEpoch(card['dateLastActivity']),
+                due=timeToEpoch(card['due']),
+                list_id=list_id
             )
         conn.commit()
 
-    return db.getLists(cur).fetchall()
+    return card_id
 
 
-def createCards():
-    conn = db.initDb('data/db.sqlite3')
-    cur = conn.cursor()
+def timeToEpoch(input_time):
+    if input_time is None:
+        return None
 
-    lists = db.getLists(cur).fetchall()
-
-    count = 0
-    for id, name, boardName in lists:
-        baseUrl = 'https://api.trello.com/1/lists/'+id+'/cards?'
-        res = connect(baseUrl)
-        count += len(res)
-
-        for line in res:
-            db.insertCard(
-                cur=cur,
-                trello_id=line['id'],
-                closed=line['closed'],
-                title=line['name'],
-                desc=line['desc'],
-                due=0, # TODO: import due date
-                list_id=id
-            )
-        conn.commit()
-
-    return count
+    # Convert time to since-epoch
+    utc_time = datetime.strptime(input_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+    return int((utc_time - datetime(1970, 1, 1)).total_seconds())

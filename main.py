@@ -10,10 +10,8 @@ service = input('''Select service:
 
 ## Import data from Trello to SQLite Database
 if (service == '1'):
-    baseUrl = 'https://api.trello.com/1/members/me/boards?'
+    baseUrl = 'https://api.trello.com/1/members/me/boards'
     trello.createBoards(trello.connect(baseUrl))
-    print(trello.createLists())
-    print(trello.createCards())
 
 if (service == '2'):
     data = parser.parseJson(input("type filename (default: data/trello.json):"))
@@ -21,7 +19,8 @@ if (service == '2'):
 
 if (service == '3'):
     # print(deck.createBoard('lastTest'))
-    print(deck.postBoards())
+    # print(deck.postBoards())
+    print(deck.postLists(10, 'Personal'))
 
 if (service == '4'):
     print(deck.authenticate())
