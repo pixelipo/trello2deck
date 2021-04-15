@@ -39,7 +39,6 @@ Fetch data from Trello and import into Nextcloud Deck via respective APIs
 
 
  ### TODO
- - refactor export to Deck
  - import Trello Card labels
  - import Trello Card attachments
  - import from JSON file
