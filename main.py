@@ -21,6 +21,5 @@ if (service == '3'):
     print(deck.authenticate())
 
 if (service == '4'):
-    print(deck.postBoards())
-    # print(deck.createBoard('lastTest'))
-    # print(deck.postLists(10, 'Personal'))
+    # deck.get_boards()
+    deck.push_to_deck()

@@ -30,6 +30,12 @@ Fetch data from Trello and import into Nextcloud Deck via respective APIs
 - keep and eye on Trello API rate limits
 - Nextcloud authentication via Nextcloud interface; generates app password to be used for API calls
 - establish connection with Deck's REST API
+- import Deck Boards, Stacks and cards
+- match Deck objects to Trello ones
+- export Boards to Deck (skip if found)
+- export Lists to Deck (skip if Stack found)
+- export Cards to Deck (skip if Card found in Stack)
+
 
 
  ### TODO
@@ -39,4 +45,4 @@ Fetch data from Trello and import into Nextcloud Deck via respective APIs
  - import from JSON file
  - establish two-way synchronization between Deck and Trello
  - refactor code (make object-oriented)
- - use proper Trello authentication
+ - use proper Trello [Authorization](https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization)

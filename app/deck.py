@@ -1,18 +1,9 @@
 from dotenv import dotenv_values
-from random import randint
-
-from urllib import request, parse
-from urllib.error import URLError, HTTPError
+from time import sleep
 import requests
-import ssl
-import json
 
-from app import db
+from app import db, helpers
 
-
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
 
 def authenticate():
     # fetch secrets from local file
@@ -21,38 +12,37 @@ def authenticate():
     except:
         return("Credentials file not found")
 
-    try:
-        req =  request.Request(config['NC_DOMAIN']+'/index.php/login/v2') # this will make the method "POST"
-        response = request.urlopen(req)
-    except URLError as e:
-        return e
+    url = config['NC_DOMAIN'] + '/index.php/login/v2'
 
-    res = json.loads(response.read().decode())
+    response = requests.get(url)
 
-    data = {'token': res['poll']['token']}
-    data = parse.urlencode(data).encode()
+    if not response:
+        return response.status_code
 
-    e = 1
+    res = response.json()
+
+    params = {
+        'token': res['poll']['token']
+    }
+
     print('Open', res['login'], 'in a browser')
+    e = None
     while e != 200:
-        try:
-            #TODO convert to requests library
-            req = request.Request(res['poll']['endpoint'], data=data)
-            res = request.urlopen(req, context=ctx)
-            e = res.getcode()
-        except HTTPError as err:
-            e = err.code
+        sleep(5) # wait 5 seconds before subsequent request queries
+        req = requests.post(res['poll']['endpoint'], params=params)
+        e = req.status_code
 
-    res = json.loads(res.read().decode())
-    return res
+    # TODO: auto-save DECK_USERNAME/DECK_PASSWORD pair to .env file
+    return req.json()
 
 
 def connect(endpoint, data=None):
     # fetch secrets from local file
     try:
         config = dotenv_values(".env")
+        credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
     except:
-        return("Credentials file not found")
+        return("Credentials not found")
 
     # compose request
     url = config['NC_DOMAIN'] + endpoint
@@ -60,141 +50,125 @@ def connect(endpoint, data=None):
         'OCS-APIRequest' : 'true',
         'Content-Type': 'application/json'
     }
-    credentials = (config['DECK_USERNAME'], config['DECK_PASSWORD'])
 
     if data:
         response = requests.post(url, auth=credentials, headers=hdr, json=data)
     else:
         response = requests.get(url, auth=credentials, headers=hdr)
 
-    return response
+    if not response:
+        return response.status_code
+
+    return response.json()
 
 
-def postBoards():
-    conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
-    trello = db.getBoards(conn).fetchall()
-
-    endpoint = '/index.php/apps/deck/api/v1.0/boards'
-
-    for trello_id, name, deck_id in trello:
-        if deck_id is None:
-            res = connect(endpoint, {"title": name, "color": randomColor()})
-            if res.status_code == 200:
-                # print(res.json())
-                deck_id = res.json()['id']
-                db.updateBoard(cur, name, deck_id)
-                conn.commit()
-                # TODO: Update board's lists board_id with Boards.id
-                print('Added', name)
-            else:
-                print(res.status_code, res)
-        else:
-            print(name, 'found. Skipping...')
-
-        postLists(deck_id, name)
+# Get Cards from Deck
+def get_cards(conn, stack_id, cards):
+    cur = conn.cursor()
+    result = [db.updateCard(cur, card['title'], card['id'], stack_id) for card in cards]
+    conn.commit()
+    if result:
+        print('Cards updated for stack', stack_id)
 
     return True
 
 
-def postLists(board_id, board_name):
-    # Get Lists by @board_name
-    conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
-    trello = db.getLists(conn, board_name).fetchall()
+# Get Stacks from Deck
+def get_stacks(conn, deck_id):
+    cur = conn.cursor()
+    endpoint = f"/index.php/apps/deck/api/v1.0/boards/{deck_id}/stacks"
+    data = connect(endpoint)
+    try:
+        stacks = [db.updateList(cur, stack['title'], stack['id'], deck_id) for stack in data]
+    except:
+        print("Hello")
+    conn.commit()
 
-    if len(trello) == 0:
-        # No lists found for a given board
-        print('No lists found for ' + board_name + '; skipping...')
-        return False
+    try:
+        cards = [get_cards(conn, stack['id'], stack['cards']) for stack in data]
+    except:
+        print('No Cards found')
 
-    endpoint = '/index.php/apps/deck/api/v1.0/boards/' + str(board_id) + '/stacks'
-
-    for index, list in enumerate(trello):
-        trello_id = list[0]
-        name = list[1]
-        deck_id = list[2]
-
-
-        if deck_id is None:
-            res = connect(endpoint, {"title": name, "order": index})
-            if res.status_code == 200:
-                # print(res.json())
-                deck_id = res.json()['id']
-                db.updateList(cur, name, deck_id)
-                conn.commit()
-                print('Imported', name)
-            else:
-                print('Error importing', name, ':\n', res.status_code, res)
-        else:
-            print(name, 'found; skipping...')
-
-        postCards(endpoint, deck_id)
-
-    return True
+    return stacks
 
 
-def postCards(endpoint, list_id):
-    conn = db.initDb('data/db.sqlite3')
-    cur=conn.cursor()
+# Get Boards from Deck
+def get_boards():
+    conn = db.initDb('data/new.sqlite3')
+    cur = conn.cursor()
+    endpoint = f"/index.php/apps/deck/api/v1.0/boards"
+    boards = [db.updateBoard(cur, board['title'], board['id']) for board in connect(endpoint)]
+    conn.commit()
 
-    url = endpoint + '/' + str(list_id)
-    getCards = connect(url)
-    if getCards.status_code == 200:
+    stacks = [get_stacks(conn, deck_id) for deck_id in boards]
+
+    conn.close()
+
+    return boards
+
+
+# Push to Deck
+def push_to_deck():
+    conn = db.initDb('data/new.sqlite3')
+    cur = conn.cursor()
+
+    res = [create_board(cur, board) for board in db.getBoardsDeck(cur)]
+
+    conn.commit()
+
+    return res
+
+
+def create_board(cur, board):
+    endpoint = f"/index.php/apps/deck/api/v1.0/boards/"
+
+    name = board[0]
+    id = board[1]
+    try:
+        deck_id = board[2]
+    except:
+        data = {"title": name, "color": helpers.randomColor()}
+        deck_id = db.updateBoard(cur, id, connect(endpoint, data))
+
+    return [create_stack(cur, stack, deck_id) for stack in db.getListsData(cur, deck_id)]
+
+
+# Push Stack to Deck
+def create_stack(cur, stack, deck_id):
+    endpoint = f"/index.php/apps/deck/api/v1.0/boards/{deck_id}/stacks"
+
+    try:
+        stack_id = stack[3]
+    except:
+        data = {"title": stack[0], "order": stack[2]}
         try:
-            cards = getCards.json()['cards']
-            deck_cards = dict()
-            for card in cards:
-                deck_cards[card['title']] = card['id']
+            stack_id = connect(endpoint, data).json()['id']
+            db.updateList(cur, stack['0'], stack_id, deck_id)
         except:
-            deck_cards = dict()
+            stack_id = None
+            return (f"Importing {stack[0]} failed")
 
-    cards = db.getCards(conn, list_id).fetchall()
-    url += '/cards'
-    # print(enumerate(cards))
-    for index, card in enumerate(cards):
-        title = card[0]
-        desc = card[1]
-        # due = card[2] # TODO: handle duedate
-        card_id = card[3]
+    return [create_card(cur, card, stack_id, endpoint) for card in db.getCards(cur, stack_id)]
 
-        if title in deck_cards.keys():
-            print('Card found. Skipping...')
-            continue
 
+# Push Card to Deck
+def create_card(cur, card, stack_id, endpoint):
+    endpoint += str(stack_id)
+
+    try:
+        deck_id = card[3]
+    except:
         data = {
-            'title': title,
+            'title': card[0],
             'type': 'plain',
-            'order': index,
-            'description': desc#,
-            # 'duedate': card[2]
+            'order': card[4],
+            'description': card[1],
+            'duedate': card[2]
         }
-        res = connect(url, data)
-        if res.status_code == 200:
-            db.updateCard(cur, title, res.json()['id'], list_id)
-            conn.commit()
-            print(title, 'added')
-        else:
-            print('Error importing', title, '\n', res)
+        card = connect(endpoint, data)
+        try:
+            deck_id = card.json()['id']
+        except:
+            return card
 
-    return True
-
-
-def randomColor():
-    r = lambda: randint(0,255)
-    return ('%02X%02X%02X' % (r(),r(),r()))
-
-
-# def createBoard(board_name):
-#     endpoint = '/index.php/apps/deck/api/v1.0/boards'
-#
-#     res = connect(endpoint, {"title": board_name, "color": randomColor()})
-#     if res.status_code == 200:
-#         conn = db.initDb('data/db.sqlite3')
-#         cur=conn.cursor()
-#         res = db.updateBoard(cur, board_name, res.json()[0]['id'])
-#         conn.commit()
-#         conn.close()
-#         return res
-#     else:
-#         return res.status_code
+    return deck_id
